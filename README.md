@@ -1,16 +1,15 @@
-golang-lru
-==========
+# golang-lru
 
-This provides the `lru` package which implements a fixed-size
-thread safe LRU cache. It is based on the cache in Groupcache.
+[![GoDoc](https://pkg.go.dev/badge/github.com/craumix/golang-lru?status.svg)](https://pkg.go.dev/github.com/craumix/golang-lru?tab=doc)
 
-Documentation
-=============
+This provides the `lru` package which implements a fixed-size thread safe LRU cache.
 
-Full docs are available on [Go Packages](https://pkg.go.dev/github.com/hashicorp/golang-lru/v2)
+This repository is based on [golang-lru by hashicorp](https://github.com/hashicorp/golang-lru), which is based on the cache in [groupcache](https://github.com/golang/groupcache).
 
-Example
-=======
+This repository aims to add an optional TTL for cache items, to the existing cache types, with minimal overhead.
+The expiry of cached items is stored in a separate map from the items, and items are lazily deleted (but can also be deleted manually).
+
+## Example
 
 Using the LRU is very simple:
 
@@ -18,8 +17,8 @@ Using the LRU is very simple:
 package main
 
 import (
-	"fmt"
-	"github.com/hashicorp/golang-lru/v2"
+ "fmt"
+ "github.com/hashicorp/golang-lru/v2"
 )
 
 func main() {
