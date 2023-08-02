@@ -6,6 +6,7 @@ package lru
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/craumix/golang-lru/simplelru"
 )
@@ -48,6 +49,12 @@ func New2Q[K comparable, V any](size int) (*TwoQueueCache[K, V], error) {
 // New2QParams creates a new TwoQueueCache using the provided
 // parameter values.
 func New2QParams[K comparable, V any](size int, recentRatio, ghostRatio float64) (*TwoQueueCache[K, V], error) {
+	return New2QParamsWithEvictTTL[K, V](size, Default2QRecentRatio, Default2QGhostEntries, nil, 0, false)
+}
+
+// New2QParams creates a new TwoQueueCache using the provided
+// parameter values, eviction callback, ttl for items and the option to enable expiry based eviction.
+func New2QParamsWithEvictTTL[K comparable, V any](size int, recentRatio, ghostRatio float64, onEvicted func(key K, value V), itemTTL time.Duration, prioritizeEvicted bool) (*TwoQueueCache[K, V], error) {
 	if size <= 0 {
 		return nil, errors.New("invalid size")
 	}
@@ -63,15 +70,15 @@ func New2QParams[K comparable, V any](size int, recentRatio, ghostRatio float64)
 	evictSize := int(float64(size) * ghostRatio)
 
 	// Allocate the LRUs
-	recent, err := simplelru.NewLRU[K, V](size, nil)
+	recent, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvicted, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
-	frequent, err := simplelru.NewLRU[K, V](size, nil)
+	frequent, err := simplelru.NewLRUWithEvictTTL[K, V](size, nil, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
-	recentEvict, err := simplelru.NewLRU[K, struct{}](evictSize, nil)
+	recentEvict, err := simplelru.NewLRUWithEvictTTL[K, struct{}](evictSize, nil, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
@@ -99,9 +106,7 @@ func (c *TwoQueueCache[K, V]) Get(key K) (value V, ok bool) {
 
 	// If the value is contained in recent, then we
 	// promote it to frequent
-	if val, ok := c.recent.Peek(key); ok {
-		c.recent.Remove(key)
-		c.frequent.Add(key, val)
+	if val, ok := simplelru.MoveItem(key, c.frequent, c.recent); ok {
 		return val, ok
 	}
 
@@ -155,8 +160,11 @@ func (c *TwoQueueCache[K, V]) ensureSpace(recentEvict bool) {
 	// If the recent buffer is larger than
 	// the target, evict from there
 	if recentLen > 0 && (recentLen > c.recentSize || (recentLen == c.recentSize && !recentEvict)) {
-		k, _, _ := c.recent.RemoveOldest()
-		c.recentEvict.Add(k, struct{}{})
+		k, _, _ := c.recent.GetOldest()
+		if !c.recent.KeyHasExpired(k) {
+			c.recentEvict.AddWithExp(k, struct{}{}, c.recent.ExpiryForKey(k))
+		}
+		c.recent.Remove(k)
 		return
 	}
 
@@ -169,6 +177,13 @@ func (c *TwoQueueCache[K, V]) Len() int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.recent.Len() + c.frequent.Len()
+}
+
+// Returns the number of accessible items in the cache.
+func (c *TwoQueueCache[K, V]) ItemCount() int {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.recent.ItemCount() + c.frequent.ItemCount()
 }
 
 // Keys returns a slice of the keys in the cache.

@@ -5,6 +5,7 @@ package lru
 
 import (
 	"sync"
+	"time"
 
 	"github.com/craumix/golang-lru/simplelru"
 )
@@ -31,6 +32,12 @@ func New[K comparable, V any](size int) (*Cache[K, V], error) {
 // NewWithEvict constructs a fixed size cache with the given eviction
 // callback.
 func NewWithEvict[K comparable, V any](size int, onEvicted func(key K, value V)) (c *Cache[K, V], err error) {
+	return NewWithEvictTTL[K, V](size, onEvicted, 0, false)
+}
+
+// NewWithEvict constructs a fixed size cache with the given eviction
+// callback, ttl for items and the option to enable expiry based eviction.
+func NewWithEvictTTL[K comparable, V any](size int, onEvicted func(key K, value V), itemTTL time.Duration, prioritizeEvicted bool) (c *Cache[K, V], err error) {
 	// create a cache with default settings
 	c = &Cache[K, V]{
 		onEvictedCB: onEvicted,
@@ -39,7 +46,7 @@ func NewWithEvict[K comparable, V any](size int, onEvicted func(key K, value V))
 		c.initEvictBuffers()
 		onEvicted = c.onEvicted
 	}
-	c.lru, err = simplelru.NewLRU(size, onEvicted)
+	c.lru, err = simplelru.NewLRUWithEvictTTL(size, onEvicted, itemTTL, prioritizeEvicted)
 	return
 }
 
@@ -247,4 +254,16 @@ func (c *Cache[K, V]) Len() int {
 	length := c.lru.Len()
 	c.lock.RUnlock()
 	return length
+}
+
+// Returns the number of accessible items in the cache.
+func (c *Cache[K, V]) ItemCount() int {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.lru.ItemCount()
+}
+
+// Removes all expired entries from the cache.
+func (c *Cache[K, V]) RemoveExpired() (evicted int) {
+	return c.lru.RemoveExpired()
 }

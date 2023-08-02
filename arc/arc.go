@@ -5,6 +5,7 @@ package arc
 
 import (
 	"sync"
+	"time"
 
 	"github.com/craumix/golang-lru/simplelru"
 )
@@ -32,20 +33,25 @@ type ARCCache[K comparable, V any] struct {
 
 // NewARC creates an ARC of the given size
 func NewARC[K comparable, V any](size int) (*ARCCache[K, V], error) {
+	return NewARCWithEvictTTL[K, V](size, nil, 0, false)
+}
+
+// NewARC creates an ARC of the given size
+func NewARCWithEvictTTL[K comparable, V any](size int, onEvict simplelru.EvictCallback[K, V], itemTTL time.Duration, prioritizeEvicted bool) (*ARCCache[K, V], error) {
 	// Create the sub LRUs
-	b1, err := simplelru.NewLRU[K, struct{}](size, nil)
+	b1, err := simplelru.NewLRUWithEvictTTL[K, struct{}](size, nil, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
-	b2, err := simplelru.NewLRU[K, struct{}](size, nil)
+	b2, err := simplelru.NewLRUWithEvictTTL[K, struct{}](size, nil, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
-	t1, err := simplelru.NewLRU[K, V](size, nil)
+	t1, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvict, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
-	t2, err := simplelru.NewLRU[K, V](size, nil)
+	t2, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvict, itemTTL, prioritizeEvicted)
 	if err != nil {
 		return nil, err
 	}
@@ -184,22 +190,30 @@ func (c *ARCCache[K, V]) replace(b2ContainsKey bool) {
 	t1Len := c.t1.Len()
 	if t1Len > 0 && (t1Len > c.p || (t1Len == c.p && b2ContainsKey)) {
 		k, _, ok := c.t1.RemoveOldest()
-		if ok {
-			c.b1.Add(k, struct{}{})
+		if ok && !c.t1.KeyHasExpired(k) {
+			c.b1.AddWithExp(k, struct{}{}, c.t1.ExpiryForKey(k))
 		}
 	} else {
 		k, _, ok := c.t2.RemoveOldest()
-		if ok {
-			c.b2.Add(k, struct{}{})
+		if ok && !c.t2.KeyHasExpired(k) {
+			c.b2.AddWithExp(k, struct{}{}, c.t2.ExpiryForKey(k))
 		}
 	}
 }
 
-// Len returns the number of cached entries
+// Len returns the number of actual items in the cache.
+// This may include items that are inaccessible due to expiry.
 func (c *ARCCache[K, V]) Len() int {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.t1.Len() + c.t2.Len()
+}
+
+// Returns the number of accessible items in the cache.
+func (c *ARCCache[K, V]) ItemCount() int {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.t1.ItemCount() + c.t2.ItemCount()
 }
 
 // Keys returns all the cached keys
@@ -265,4 +279,16 @@ func (c *ARCCache[K, V]) Peek(key K) (value V, ok bool) {
 		return val, ok
 	}
 	return c.t2.Peek(key)
+}
+
+// Remove all expired items.
+// Returns the number of non ghost items removed.
+func (c *ARCCache[K, V]) RemoveExpired() (evicted int) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	evicted += c.t1.RemoveExpired()
+	evicted += c.t2.RemoveExpired()
+	c.b1.RemoveExpired()
+	c.b2.RemoveExpired()
+	return
 }
