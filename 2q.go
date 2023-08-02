@@ -49,12 +49,12 @@ func New2Q[K comparable, V any](size int) (*TwoQueueCache[K, V], error) {
 // New2QParams creates a new TwoQueueCache using the provided
 // parameter values.
 func New2QParams[K comparable, V any](size int, recentRatio, ghostRatio float64) (*TwoQueueCache[K, V], error) {
-	return New2QParamsWithEvictTTL[K, V](size, Default2QRecentRatio, Default2QGhostEntries, nil, 0, false)
+	return New2QParamsWithEvictTTL[K, V](size, Default2QRecentRatio, Default2QGhostEntries, nil, 0)
 }
 
 // New2QParams creates a new TwoQueueCache using the provided
 // parameter values, eviction callback, ttl for items and the option to enable expiry based eviction.
-func New2QParamsWithEvictTTL[K comparable, V any](size int, recentRatio, ghostRatio float64, onEvicted func(key K, value V), itemTTL time.Duration, prioritizeEvicted bool) (*TwoQueueCache[K, V], error) {
+func New2QParamsWithEvictTTL[K comparable, V any](size int, recentRatio, ghostRatio float64, onEvicted func(key K, value V), itemTTL time.Duration) (*TwoQueueCache[K, V], error) {
 	if size <= 0 {
 		return nil, errors.New("invalid size")
 	}
@@ -70,15 +70,15 @@ func New2QParamsWithEvictTTL[K comparable, V any](size int, recentRatio, ghostRa
 	evictSize := int(float64(size) * ghostRatio)
 
 	// Allocate the LRUs
-	recent, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvicted, itemTTL, prioritizeEvicted)
+	recent, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvicted, itemTTL)
 	if err != nil {
 		return nil, err
 	}
-	frequent, err := simplelru.NewLRUWithEvictTTL[K, V](size, nil, itemTTL, prioritizeEvicted)
+	frequent, err := simplelru.NewLRUWithEvictTTL[K, V](size, nil, itemTTL)
 	if err != nil {
 		return nil, err
 	}
-	recentEvict, err := simplelru.NewLRUWithEvictTTL[K, struct{}](evictSize, nil, itemTTL, prioritizeEvicted)
+	recentEvict, err := simplelru.NewLRUWithEvictTTL[K, struct{}](evictSize, nil, itemTTL)
 	if err != nil {
 		return nil, err
 	}

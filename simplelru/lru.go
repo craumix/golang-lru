@@ -13,33 +13,31 @@ type EvictCallback[K comparable, V any] func(key K, value V)
 
 // LRU implements a non-thread safe fixed size LRU cache
 type LRU[K comparable, V any] struct {
-	size              int
-	evictList         *lruList[K, V]
-	items             map[K]*entry[K, V]
-	onEvict           EvictCallback[K, V]
-	itemTTL           time.Duration
-	itemExpiries      map[K]time.Time
-	prioritizeEvicted bool
+	size         int
+	evictList    *lruList[K, V]
+	items        map[K]*entry[K, V]
+	onEvict      EvictCallback[K, V]
+	itemTTL      time.Duration
+	itemExpiries map[K]time.Time
 }
 
 // NewLRU constructs an LRU of the given size
 func NewLRU[K comparable, V any](size int, onEvict EvictCallback[K, V]) (*LRU[K, V], error) {
-	return NewLRUWithEvictTTL[K, V](size, onEvict, 0, false)
+	return NewLRUWithEvictTTL[K, V](size, onEvict, 0)
 }
 
-func NewLRUWithEvictTTL[K comparable, V any](size int, onEvict EvictCallback[K, V], itemTTL time.Duration, prioritizeEvicted bool) (*LRU[K, V], error) {
+func NewLRUWithEvictTTL[K comparable, V any](size int, onEvict EvictCallback[K, V], itemTTL time.Duration) (*LRU[K, V], error) {
 	if size <= 0 {
 		return nil, errors.New("must provide a positive size")
 	}
 
 	c := &LRU[K, V]{
-		size:              size,
-		evictList:         newList[K, V](),
-		items:             make(map[K]*entry[K, V]),
-		onEvict:           onEvict,
-		itemTTL:           itemTTL,
-		itemExpiries:      make(map[K]time.Time),
-		prioritizeEvicted: prioritizeEvicted && itemTTL > 0,
+		size:         size,
+		evictList:    newList[K, V](),
+		items:        make(map[K]*entry[K, V]),
+		onEvict:      onEvict,
+		itemTTL:      itemTTL,
+		itemExpiries: make(map[K]time.Time),
 	}
 	return c, nil
 }
@@ -95,8 +93,11 @@ func (c *LRU[K, V]) AddWithExp(key K, value V, expiry time.Time) (evicted bool) 
 // Get looks up a key's value from the cache.
 func (c *LRU[K, V]) Get(key K) (value V, ok bool) {
 	if ent, ok := c.items[key]; ok && !c.KeyHasExpired(key) {
-		c.evictList.moveToFront(ent)
-		return ent.value, true
+		if !c.KeyHasExpired(key) {
+			c.evictList.moveToFront(ent)
+			return ent.value, true
+		}
+		c.removeElement(ent)
 	}
 	return
 }
@@ -104,8 +105,11 @@ func (c *LRU[K, V]) Get(key K) (value V, ok bool) {
 // Contains checks if a key is in the cache, without updating the recent-ness
 // or deleting it for being stale.
 func (c *LRU[K, V]) Contains(key K) (ok bool) {
-	if _, ok = c.items[key]; ok && !c.KeyHasExpired(key) {
-		return true
+	if ent, ok := c.items[key]; ok {
+		if !c.KeyHasExpired(key) {
+			return true
+		}
+		c.removeElement(ent)
 	}
 
 	return
@@ -115,8 +119,11 @@ func (c *LRU[K, V]) Contains(key K) (ok bool) {
 // the "recently used"-ness of the key.
 func (c *LRU[K, V]) Peek(key K) (value V, ok bool) {
 	var ent *entry[K, V]
-	if ent, ok = c.items[key]; ok && !c.KeyHasExpired(key) {
-		return ent.value, true
+	if ent, ok = c.items[key]; ok {
+		if !c.KeyHasExpired(key) {
+			return ent.value, true
+		}
+		c.removeElement(ent)
 	}
 	return
 }
@@ -125,12 +132,9 @@ func (c *LRU[K, V]) Peek(key K) (value V, ok bool) {
 // key was contained.
 func (c *LRU[K, V]) Remove(key K) (present bool) {
 	if ent, ok := c.items[key]; ok {
+		defer c.removeElement(ent)
 		if !c.KeyHasExpired(key) {
-			c.removeElement(ent)
 			return true
-		} else {
-			c.removeElement(ent)
-			return
 		}
 	}
 	return
@@ -138,7 +142,7 @@ func (c *LRU[K, V]) Remove(key K) (present bool) {
 
 // RemoveOldest removes the oldest item from the cache.
 func (c *LRU[K, V]) RemoveOldest() (key K, value V, ok bool) {
-	if ent, ok := c.getOldest(); ok {
+	if ent, ok := c.getOldest(false); ok {
 		c.removeElement(ent)
 		return ent.key, ent.value, true
 	}
@@ -148,7 +152,7 @@ func (c *LRU[K, V]) RemoveOldest() (key K, value V, ok bool) {
 
 // GetOldest returns the oldest entry
 func (c *LRU[K, V]) GetOldest() (key K, value V, ok bool) {
-	if ent, ok := c.getOldest(); ok {
+	if ent, ok := c.getOldest(false); ok {
 		return ent.key, ent.value, true
 	}
 
@@ -207,15 +211,15 @@ func (c *LRU[K, V]) Resize(size int) (evicted int) {
 
 // removeOldest removes the oldest item from the cache.
 func (c *LRU[K, V]) removeOldest() {
-	if ent, ok := c.getOldest(); ok {
+	if ent, ok := c.getOldest(true); ok {
 		c.removeElement(ent)
 	}
 }
 
-func (c *LRU[K, V]) getOldest() (oldest *entry[K, V], ok bool) {
+func (c *LRU[K, V]) getOldest(includeExpired bool) (oldest *entry[K, V], ok bool) {
 	var next *entry[K, V]
 
-	if c.prioritizeEvicted {
+	if c.itemTTL > 0 && includeExpired {
 		if ent, ok := c.findExpired(); ok {
 			return ent, true
 		}
@@ -279,6 +283,17 @@ func (c *LRU[K, V]) RemoveExpired() (evicted int) {
 			evicted++
 		}
 		ent = next
+	}
+
+	return
+}
+
+// Change the expiry for an item in the cache.
+// The expiry of already expired items cannot be changed.
+func (c *LRU[K, V]) ChangeExpiry(key K, expiry time.Time) (ok bool) {
+	if _, ok := c.Peek(key); ok {
+		c.itemExpiries[key] = expiry
+		return true
 	}
 
 	return

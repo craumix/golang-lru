@@ -33,25 +33,25 @@ type ARCCache[K comparable, V any] struct {
 
 // NewARC creates an ARC of the given size
 func NewARC[K comparable, V any](size int) (*ARCCache[K, V], error) {
-	return NewARCWithEvictTTL[K, V](size, nil, 0, false)
+	return NewARCWithEvictTTL[K, V](size, nil, 0)
 }
 
 // NewARC creates an ARC of the given size
-func NewARCWithEvictTTL[K comparable, V any](size int, onEvict simplelru.EvictCallback[K, V], itemTTL time.Duration, prioritizeEvicted bool) (*ARCCache[K, V], error) {
+func NewARCWithEvictTTL[K comparable, V any](size int, onEvict simplelru.EvictCallback[K, V], itemTTL time.Duration) (*ARCCache[K, V], error) {
 	// Create the sub LRUs
-	b1, err := simplelru.NewLRUWithEvictTTL[K, struct{}](size, nil, itemTTL, prioritizeEvicted)
+	b1, err := simplelru.NewLRUWithEvictTTL[K, struct{}](size, nil, itemTTL)
 	if err != nil {
 		return nil, err
 	}
-	b2, err := simplelru.NewLRUWithEvictTTL[K, struct{}](size, nil, itemTTL, prioritizeEvicted)
+	b2, err := simplelru.NewLRUWithEvictTTL[K, struct{}](size, nil, itemTTL)
 	if err != nil {
 		return nil, err
 	}
-	t1, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvict, itemTTL, prioritizeEvicted)
+	t1, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvict, itemTTL)
 	if err != nil {
 		return nil, err
 	}
-	t2, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvict, itemTTL, prioritizeEvicted)
+	t2, err := simplelru.NewLRUWithEvictTTL[K, V](size, onEvict, itemTTL)
 	if err != nil {
 		return nil, err
 	}
