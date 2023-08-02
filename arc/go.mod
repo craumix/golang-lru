@@ -1,4 +1,4 @@
 module github.com/craumix/golang-lru/arc
 
-go 1.18
+go 1.20
 
