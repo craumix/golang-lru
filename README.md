@@ -18,11 +18,11 @@ package main
 
 import (
  "fmt"
- "github.com/hashicorp/golang-lru/v2"
+ "github.com/craumix/golang-lru"
 )
 
 func main() {
-  l, _ := lru.New[int, any](128)
+  l, _ := lru.NewWithEvictTTL[int, any](128, nil, time.Minute)
   for i := 0; i < 256; i++ {
       l.Add(i, nil)
   }
