@@ -161,26 +161,36 @@ func (c *LRU[K, V]) GetOldest() (key K, value V, ok bool) {
 
 // Keys returns a slice of the keys in the cache, from oldest to newest.
 func (c *LRU[K, V]) Keys() []K {
+	var next *entry[K, V]
 	keys := make([]K, c.evictList.length())
 	i := 0
-	for ent := c.evictList.back(); ent != nil; ent = ent.prevEntry() {
+	for ent := c.evictList.back(); ent != nil; {
+		next = ent.prevEntry()
 		if !c.KeyHasExpired(ent.key) {
 			keys[i] = ent.key
 			i++
+		} else {
+			c.removeElement(ent)
 		}
+		ent = next
 	}
 	return keys[:i]
 }
 
 // Values returns a slice of the values in the cache, from oldest to newest.
 func (c *LRU[K, V]) Values() []V {
+	var next *entry[K, V]
 	values := make([]V, len(c.items))
 	i := 0
-	for ent := c.evictList.back(); ent != nil; ent = ent.prevEntry() {
+	for ent := c.evictList.back(); ent != nil; {
+		next = ent.prevEntry()
 		if !c.KeyHasExpired(ent.key) {
 			values[i] = ent.value
 			i++
+		} else {
+			c.removeElement(ent)
 		}
+		ent = next
 	}
 	return values[:i]
 }
@@ -188,7 +198,7 @@ func (c *LRU[K, V]) Values() []V {
 // Len returns the physical number of items in the cache.
 // This may include items that are inaccessible due to having expired.
 func (c *LRU[K, V]) Len() int {
-	return len(c.Keys())
+	return c.evictList.length()
 }
 
 // Len returns the number of actual items in the cache.
