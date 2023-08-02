@@ -5,6 +5,7 @@ package lru
 
 import (
 	"testing"
+	"time"
 )
 
 func Benchmark2Q_Rand(b *testing.B) {
@@ -302,5 +303,36 @@ func Test2Q_Peek(t *testing.T) {
 	l.Add(3, 3)
 	if l.Contains(1) {
 		t.Errorf("should not have updated recent-ness of 1")
+	}
+}
+
+func Test2Q_TTL(t *testing.T) {
+	l, err := New2QParamsWithEvictTTL[int, int](16, Default2QRecentRatio, Default2QGhostEntries, nil, time.Millisecond*50)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	l.Add(1, 1)
+
+	if l.Len() != 1 {
+		t.Errorf("Cache Len() should be 1")
+	}
+
+	if l.ItemCount() != 1 {
+		t.Errorf("ItemCount() should be 1, since element 1 should not have already expired")
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	if l.Len() != 1 {
+		t.Errorf("Cache Len() should be 1, since 1 is expired but not removed from the cache")
+	}
+
+	if l.ItemCount() != 0 {
+		t.Errorf("ItemCount() should be 0, since element 1 should have already expired")
+	}
+
+	if l.Len() != 0 {
+		t.Errorf("Cache Len() should be 0, since item should have been removed")
 	}
 }

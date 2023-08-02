@@ -387,3 +387,34 @@ func TestARC_Peek(t *testing.T) {
 		t.Errorf("should not have updated recent-ness of 1")
 	}
 }
+
+func TestARC_TTL(t *testing.T) {
+	l, err := NewARCWithEvictTTL[int, int](16, nil, time.Millisecond * 50)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	l.Add(1, 1)
+
+	if l.Len() != 1 {
+		t.Errorf("Cache Len() should be 1")
+	}
+
+	if l.ItemCount() != 1 {
+		t.Errorf("ItemCount() should be 1, since element 1 should not have already expired")
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	if l.Len() != 1 {
+		t.Errorf("Cache Len() should be 1, since 1 is expired but not removed from the cache")
+	}
+
+	if l.ItemCount() != 0 {
+		t.Errorf("ItemCount() should be 0, since element 1 should have already expired")
+	}
+
+	if l.Len() != 0 {
+		t.Errorf("Cache Len() should be 0, since item should have been removed")
+	}
+}
