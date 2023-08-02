@@ -17,6 +17,7 @@ Using the LRU is very simple:
 package main
 
 import (
+ "time"
  "fmt"
  "github.com/craumix/golang-lru"
 )
